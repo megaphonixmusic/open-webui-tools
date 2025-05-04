@@ -16,6 +16,7 @@
     - [ ] i.e. phrases in the user's query like "last week's purchases" or "last month's total spend on `<category>`" should probably trigger a method to filter by date range
   - [ ] Update system prompt to ask the LLM to provide ISO date formats alongside endpoint choice
     - [ ] i.e. `[endpoint: "transactions", date_start: "2025-04-01", date_end: "2025-04-20"]`
+  - [ ] Make sensitive Valves (keys, passwords, secrets, etc.) `SecretStr` type and implement `get_secret_value()` to retrieve
 
 * **Actual API Request Tool:**
   - [ ] Refactor and comment code for clarity and readability
@@ -26,3 +27,4 @@
     - [ ] i.e. phrases in the user's query like "last week's purchases" or "last month's total spend on `<category>`" should probably trigger a method to filter by date range
   - [ ] Update system prompt to ask the LLM to provide ISO date formats alongside endpoint choice
     - [ ] i.e. dict: `{endpoint: "transactions", date_start: "2025-04-01", date_end: "2025-04-20"}`
+  - [ ] Make sensitive Valves (keys, passwords, secrets, etc.) `SecretStr` type and implement `get_secret_value()` to retrieve
