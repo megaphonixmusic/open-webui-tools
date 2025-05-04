@@ -19,7 +19,7 @@
 
 * **Actual API Request Tool:**
   - [ ] Refactor and comment code for clarity and readability
-  - [x] Reformat context into Markdown for easier interpretation
+  - [x] ~~Reformat context into Markdown for easier interpretation~~
   - [ ] Incorporate [delta requests](https://api.ynab.com/#deltas) or local cached data with persistent sync tracking, to reduce context size from API response and increase responsiveness
     - [ ] With local/persistent sync tracking, possibly implement account balance changes over time, such as "how much has my net worth changed over the past month"?
   - [ ] Incorporate more logic branches for transaction data parsing efficiency **<- Probably easiest to use existing `actualpy` methods directly**
