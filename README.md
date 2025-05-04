@@ -1,4 +1,4 @@
-# Various Open WebUI Tools by megaphonix
+# Various Open WebUI Tools by Megaphonix
 
 **Current projects:**
 
