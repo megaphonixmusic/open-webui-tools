@@ -7,7 +7,7 @@
 
 # TODO
 
-YNAB API Request Tool:
+* **YNAB API Request Tool:**
   - [ ] Refactor and comment code for clarity and readability
   - [ ] Reformat context into Markdown for easier interpretation
   - [ ] Incorporate [delta requests](https://api.ynab.com/#deltas) or local cached data with persistent sync tracking, to reduce context size from API response and increase responsiveness
@@ -17,7 +17,7 @@ YNAB API Request Tool:
   - [ ] Update system prompt to ask the LLM to provide ISO date formats alongside endpoint choice
     - [ ] i.e. `[endpoint: "transactions", date_start: "2025-04-01", date_end: "2025-04-20"]`
 
-Actual API Request Tool:
+* **Actual API Request Tool:**
   - [ ] Refactor and comment code for clarity and readability
   - [x] Reformat context into Markdown for easier interpretation
   - [ ] Incorporate [delta requests](https://api.ynab.com/#deltas) or local cached data with persistent sync tracking, to reduce context size from API response and increase responsiveness
