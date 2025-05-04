@@ -25,4 +25,4 @@
   - [ ] Incorporate more logic branches for transaction data parsing efficiency **<- Probably easiest to use existing `actualpy` methods directly**
     - [ ] i.e. phrases in the user's query like "last week's purchases" or "last month's total spend on <category>" should probably trigger a method to filter by date range
   - [ ] Update system prompt to ask the LLM to provide ISO date formats alongside endpoint choice
-    - [ ] i.e. `[endpoint: "transactions", date_start: "2025-04-01", date_end: "2025-04-20"]`
+    - [ ] i.e. dict: `{endpoint: "transactions", date_start: "2025-04-01", date_end: "2025-04-20"}`
