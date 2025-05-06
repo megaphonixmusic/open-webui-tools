@@ -1,9 +1,9 @@
 """
 title: YNAB API Request
-description: Retrieves user's financial information (accounts or transactions) from YNAB API for LLM context
+description: Retrieves user's financial information (accounts or transactions) from YNAB API to answer personal finance questions
 author: megaphonix
 author_url: https://github.com/megaphonixmusic
-version: 0.1.0
+version: 0.1.1
 required_open_webui_version: 0.6.5
 """
 
@@ -23,9 +23,7 @@ import requests
 import re
 import json
 from open_webui.models.users import Users
-from open_webui.models.models import Models
 from open_webui.utils.chat import generate_chat_completion
-from open_webui.utils.misc import get_last_user_message
 
 class Tools:
 
@@ -108,13 +106,18 @@ class Tools:
 
         prompt = f"Query: {query}"
 
+        # Trying to figure out how to get the global "keep_alive" setting... this doesn't work yet
+        keep_alive = getattr(__request__.state, "keep_alive", None)
+        print(f"keep_alive = {keep_alive}")
+
         payload = {
             "model": __model__.get("id") if isinstance(__model__, dict) else __model__,
             "messages": [
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": prompt},
             ],
-            "stream": False,
+            "keep_alive": keep_alive,
+            "stream": False
         }
 
         try:
@@ -173,13 +176,15 @@ class Tools:
                         print(f"ynab_api_request: no accounts found")
                     return "No accounts found."
 
-                context = "YNAB Accounts:\n"
+                processed_accounts = []
                 for acc in accounts:
-                    name = acc.get("name")
-                    balance = acc.get("balance", 0) / 1000.0
-                    closed = acc.get("closed", False)
-                    if not closed:
-                        context += f"- {name}: {format_currency(balance)}\n"
+                    if not acc.get("closed", False):
+                        processed_accounts.append({
+                            "name": acc.get("name"),
+                            "balance": acc.get("balance", 0) / 1000.0,
+                            "type": acc.get("type"),
+                            "included_in_budget": acc.get("on_budget", False)
+                        })
 
                 if self.valves.debug:
                     print("ynab_api_request: YNAB account data fetched successfully")
@@ -193,7 +198,9 @@ class Tools:
                     }
                 )
 
-                return context
+                return  {
+                    "All YNAB Accounts": processed_accounts
+                }
             except Exception as e:
                 if self.valves.debug:
                     print(f"ynab_api_request: error fetching YNAB accounts: {str(e)}")
@@ -226,18 +233,16 @@ class Tools:
                         print("ynab_api_request: no transactions found")
                     return "No transactions found."
 
-                context = "All YNAB Transactions:\n"
+                processed_transactions = []
                 for tx in transactions:
-                    date = tx.get("date", "")
-                    payee = tx.get("payee_name") or "Unknown"
-                    amount = tx.get("amount", 0) / 1000.0
-                    category = tx.get("category_name") or "Uncategorized"
-                    account = tx.get("account_name") or "Unknown Account"
-                    memo = tx.get("memo") or ""
-                    context += (
-                        f"- {date}: {payee} — {format_currency(amount)} "
-                        f"(Category: {category}, Account: {account}, Memo: {memo})\n"
-                    )
+                    processed_transactions.append({
+                        "date": tx.get("date", ""),
+                        "payee": tx.get("payee_name", "Unknown"),
+                        "amount": tx.get("amount", 0) / 1000.0,
+                        "category": tx.get("category_name", "Uncategorized"),
+                        "account": tx.get("account_name", "Unknown Account"),
+                        "memo": tx.get("memo", ""),
+                    })
 
                 if self.valves.debug:
                         print("ynab_api_request: YNAB data fetched successfully")
@@ -251,7 +256,9 @@ class Tools:
                     }
                 )
 
-                return context
+                return {
+                    "All YNAB Transactions": processed_transactions
+                }
             except Exception as e:
                 if self.valves.debug:
                         print(f"ynab_api_request: error fetching YNAB transactions: {str(e)}")

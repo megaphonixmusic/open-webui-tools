@@ -19,9 +19,7 @@ import requests
 import re
 import json
 from open_webui.models.users import Users
-from open_webui.models.models import Models
 from open_webui.utils.chat import generate_chat_completion
-from open_webui.utils.misc import get_last_user_message
 from actual import Actual
 from actual.queries import get_accounts, get_transactions, get_account, get_categories, get_payees
 
@@ -111,13 +109,19 @@ class Tools:
 
         prompt = f"Query: {query}"
 
+
+        # Trying to figure out how to get the global "keep_alive" setting... this doesn't work yet
+        keep_alive = getattr(__request__.state, "keep_alive", None)
+        print(f"keep_alive = {keep_alive}")
+
         payload = {
             "model": __model__.get("id") if isinstance(__model__, dict) else __model__,
             "messages": [
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": prompt},
             ],
-            "stream": False,
+            "keep_alive": keep_alive,
+            "stream": False
         }
 
         try:
@@ -186,12 +190,15 @@ class Tools:
                 )
 
                 try:
-                    context = "Accounts:\n| Account Name | Balance |\n| --- | ---: |\n"
-                    for account in get_accounts(actual.session):
-                        name = account.name
-                        balance = account.balance
-                        # I don't believe Actual supports "closed" accounts, so skipping "closed" check
-                        context += f"| {name} | {format_currency(balance)} |\n"
+                    processed_accounts = []
+                    for acc in get_accounts(actual.session):
+                        processed_accounts.append({
+                            "name": acc.name,
+                            "balance": acc.balance
+                        })
+                        name = acc.name
+                        balance = acc.balance
+                        # I don't believe Actual supports "closed" accounts, so skipping "closed" check for now
                     if self.valves.debug:
                         print("actual_api_request: Actual account data fetched successfully")
                     await __event_emitter__(
@@ -203,8 +210,9 @@ class Tools:
                             },
                         }
                     )
-                    print(context)
-                    return context
+                    return {
+                        "All Actual Accounts": processed_accounts
+                    }
                 except Exception as e:
                     if self.valves.debug:
                         print(f"actual_api_request: error while fetching Actual accounts: {str(e)}")
@@ -241,26 +249,19 @@ class Tools:
                     payees = get_payees(actual.session)
                     payee_lookup = {pay.id: pay.name for pay in payees}
 
-                    context = "Transactions:\n| Account | Date | Payee | Notes | Category | Amount |\n| --- | --- | ---: | --- | --- | --- |\n"
-                    all_transactions = get_transactions(actual.session)
-                    for tx in all_transactions:
-                        date = tx.get_date()
-    
-                        payee = payee_lookup.get(tx.payee_id, "No Payee")
-
-                        amount = tx.get_amount()
-                        
-                        category = category_lookup.get(tx.category_id, "Uncategorized")
-
+                    processed_transactions = []
+                    for tx in get_transactions(actual.session):
                         account_obj = get_account(actual.session, tx.acct)
                         account = account_obj.name if account_obj else "Unknown Account"
-
-                        notes = tx.notes
+                        processed_transactions.append({
+                            "date": tx.get_date(),
+                            "payee": payee_lookup.get(tx.payee_id, "No Payee"),
+                            "amount": tx.get_amount(),
+                            "category": category_lookup.get(tx.category_id, "Uncategorized"),
+                            "account": account,
+                            "notes": tx.notes
+                        })
                         
-                        context += (
-                            f"| {account} | {date} | {payee} | {notes or ''} | {category} | {format_currency(amount)} |\n"
-                        )
-                    print(context)
                     if self.valves.debug:
                         print("actual_api_request: Actual transaction data fetched successfully")
                     await __event_emitter__(
@@ -272,7 +273,9 @@ class Tools:
                             },
                         }
                     )
-                    return context
+                    return {
+                        "All Actual Transactions": processed_transactions
+                    }
                 except Exception as e:
                     if self.valves.debug:
                         print(f"actual_api_request: error while fetching Actual transactions: {str(e)}")
