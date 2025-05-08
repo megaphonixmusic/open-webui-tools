@@ -46,7 +46,10 @@ class EventEmitter:
         debug="Off"
     ):
         if debug in {"Basic", "Full"}:
-            print(f"[actual_api_request] {status}: {description} ({err})")
+            debugMsg = f"[actual_api_request] {status}: {description}"
+            if not err == None:
+                debugMsg += f" (Error: {err})"
+            print(debugMsg)
         if self.event_emitter:
             await self.event_emitter(
                 {
@@ -91,7 +94,6 @@ class Tools:
         )
         CONTEXT_FORMAT: Literal["JSON", "Markdown", "Plaintext"] = Field(
             default="JSON",
-            title="Context Format",
             description="How to format data passed to LLM for context: JSON, Markdown, Plaintext",
             required=True
         )
@@ -181,7 +183,7 @@ class Tools:
                 except json.JSONDecodeError:
                     pass
         except Exception as e:
-            determinationError = "Error occurred while determining what data to retrieve."
+            determinationError = "Error occurred while determining what Actual data to retrieve."
             await emitter.emit(
                 status="error",
                 description=f"{determinationError} {e}",
@@ -294,7 +296,7 @@ class Tools:
                                 "notes": tx.notes
                             })
                             processed_transactions_markdown += f"| {transactionDate} | {payee} | {amount} | {category} | {account} | {tx.notes} |\n"
-                            processed_transactions_plaintext += f"- {transactionDate}: {payee} - {amount}\n"
+                            processed_transactions_plaintext += f"- Date: {transactionDate}, Payee: {payee}, Amount: {amount}, Category: {category}, Account: {account}, Notes: {tx.notes}\n"
                     await emitter.emit(
                         status="complete",
                         description="Actual transaction data fetched successfully",

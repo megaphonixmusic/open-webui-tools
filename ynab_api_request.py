@@ -3,7 +3,7 @@ title: YNAB API Request
 description: Retrieves user's financial information (accounts or transactions) from YNAB API to answer personal finance questions
 author: megaphonix
 author_url: https://github.com/megaphonixmusic
-version: 0.1.1
+version: 0.2.0
 required_open_webui_version: 0.6.5
 """
 
@@ -15,6 +15,10 @@ required_open_webui_version: 0.6.5
 # How to retrieve your Budget ID:
 #     Step 1: https://api.ynab.com/#access-token-usage
 #     Step 2: https://api.ynab.com/#response-format
+#
+# v0.2.0 [2025-05-07] 
+# - Refactored code (now matches Actual API Request more closely)
+# - Added Valves for 'Context Format', 'Debug'
 
 from datetime import datetime, timedelta, date
 from typing import List, Dict, Callable, Any, Optional, Awaitable, Literal
@@ -25,33 +29,77 @@ import json
 from open_webui.models.users import Users
 from open_webui.utils.chat import generate_chat_completion
 
+def format_currency(amount: float) -> str:
+            if amount < 0:
+                return f"-${abs(amount):,.2f}"
+            else:
+                return f"${amount:,.2f}"
+
+class EventEmitter:
+
+    def __init__(self, event_emitter: Callable[[dict], Any] = None):
+        self.event_emitter = event_emitter
+
+    async def emit(
+        self,
+        description="Unknown State",
+        status="in_progress",
+        done=False,
+        err=None,
+        debug="Off"
+    ):
+        if debug in {"Basic", "Full"}:
+            debugMsg = f"[actual_api_request] {status}: {description}"
+            if not err == None:
+                debugMsg += f" (Error: {err})"
+            print(debugMsg)
+        if self.event_emitter:
+            await self.event_emitter(
+                {
+                    "type": "status",
+                    "data": {
+                        "status": status,
+                        "description": description,
+                        "done": done,
+                    },
+                }
+            )
+
 class Tools:
 
     class Valves(BaseModel):
-        ynab_budget_id: str = Field(
+        YNAB_BUDGET_ID: str = Field(
             default="",
+            title="YNAB Budget ID",
             description="Budget ID to query. Can be obtained with YNAB API (see README)",
             required=True,
         )
-        ynab_access_token: str = Field(
-            default="", description="YNAB API authorization token", required=True
+        YNAB_ACCESS_TOKEN: str = Field(
+            default="",
+            title="YNAB Access Token",
+            description="YNAB API authorization token",
+            required=True
         )
-        context_format: Literal["JSON", "Markdown", "Plaintext"] = Field(
-            default="JSON", title="Context Format", description="How to format data passed to LLM for context: JSON, Markdown, Plaintext"
+        CONTEXT_FORMAT: Literal["JSON", "Markdown", "Plaintext"] = Field(
+            default="JSON",
+            description="How to format data passed to LLM for context: JSON, Markdown, Plaintext",
+            required=True
         )
-        debug: bool = Field(
-            default=False, description="Enables verbose debugging in OpenWebUI logs"
+        DEBUG: Literal["Off", "Basic", "Full"] = Field(
+            default="Off",
+            description="Toggle verbose debugging in OpenWebUI logs. Off = none, Basic = status messages, Full = includes raw data",
+            required=False
         )
-        citations: bool = Field(
-            default=False, description="Enables in-line 'citations', proving response is sourced from actual YNAB data. Looks messy, but is useful for debugging/differentiating from hallucinations"
+        CITATIONS: bool = Field(
+            default=False,
+            description="Enables in-line 'citations', proving response is sourced from actual YNAB data. Looks messy, but is useful for debugging/differentiating from hallucinations",
+            required=False
         )
         pass
 
     def __init__(self):
         self.valves = self.Valves()
-        self.citation = False
-        if self.valves.debug:
-            print("ynab_api_request: init")
+        self.citation = self.valves.CITATIONS
         pass
 
     async def _run(
@@ -63,27 +111,18 @@ class Tools:
         __model__: Optional[dict] = None,
     ) -> str:
 
-        def format_currency(amount: float) -> str:
-            if amount < 0:
-                return f"-${abs(amount):,.2f}"
-            else:
-                return f"${amount:,.2f}"
+        emitter = EventEmitter(__event_emitter__)
+        contextFormat = self.valves.CONTEXT_FORMAT
+        debugState = self.valves.DEBUG
 
-        budget_id = self.valves.ynab_budget_id
-        access_token = self.valves.ynab_access_token
-        headers = {"Authorization": f"Bearer {access_token}"}
-
-        if self.valves.debug:
-            print(f"ynab_api_request: determining which YNAB data to retrieve")
-        await __event_emitter__(
-            {
-                "type": "status",
-                "data": {
-                    "description": "Determining which YNAB data to retrieve...",
-                    "done": False,
-                },
-            }
+        await emitter.emit(
+            description="Determining which YNAB data to retrieve...",
+            debug=debugState
         )
+
+        budget_id = self.valves.YNAB_BUDGET_ID
+        access_token = self.valves.YNAB_ACCESS_TOKEN
+        headers = {"Authorization": f"Bearer {access_token}"}
 
         # Use LLM to decide which API endpoint to call
         tools_metadata = [
@@ -98,20 +137,17 @@ class Tools:
         ]
 
         system_prompt = (
-            """You are an assistant tasked with retrieving financial data for the user through 'YNAB' (aka You Need A Budget), a financial tracking and budgeting app.
-            Do not rely on fake financial data in your own knowledge base;
-            instead, determine the best tool below that will be used to query for the user's real YNAB data pertaining to the user's request."""
-            + "\nTools: " + str(tools_metadata)
-            + "\nIf a tool doesn't match the query, return an empty list []. Otherwise, return a list of matching tool IDs in the format ['tool_id']. Only return the list. Do not return any other text."
-            + "\nExamples of queries that fall under ['accounts'] include 'What is my net worth?', 'How much is in my checking account?', 'How much do I owe on my student loans?', 'How much debt do I have?'"
-            + "\nExamples of queries that fall under ['transactions'] include 'How much total did I spend last week?', 'How many times did I get Starbucks last month?', 'What is my largest purchase year-to-date?'"
+            f"""You are an assistant tasked with retrieving financial data for the user through 'YNAB' (aka You Need A Budget), a financial tracking and budgeting app.\n
+            Determine the best tool below to check for the user's data pertaining to the user's query.\n
+            Tools:\n
+            {str(tools_metadata)}
+            \nIf a tool doesn't match the query, return an empty list []. Otherwise, return a list of matching tool IDs in the format ['tool_id']. Only return the list. Do not return any other text.\n
+            Examples of ['accounts'] queries include 'What is my net worth?', 'How much is in my checking account?', 'How much do I owe on my student loans?', 'How much debt do I have?'\n
+            Examples of ['transactions'] queries include 'How much total did I spend last week?', 'How many times did I get Starbucks last month?', 'What is my largest purchase year-to-date?'
+            """
         )
 
         prompt = f"Query: {query}"
-
-        # Trying to figure out how to get the global "keep_alive" setting... this doesn't work yet
-        keep_alive = getattr(__request__.state, "keep_alive", None)
-        print(f"keep_alive = {keep_alive}")
 
         payload = {
             "model": __model__.get("id") if isinstance(__model__, dict) else __model__,
@@ -119,7 +155,6 @@ class Tools:
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": prompt},
             ],
-            "keep_alive": keep_alive,
             "stream": False
         }
 
@@ -131,151 +166,200 @@ class Tools:
             content = response["choices"][0]["message"]["content"]
             content = content.replace("'", '"')
             match = re.search(r"\[.*?\]", content)
-            endpoint = None
+            dataType = None
             if match:
                 try:
                     tools = json.loads(match.group(0))
                     if isinstance(tools, list) and tools:
-                        endpoint = tools[0]
+                        dataType = tools[0]
                 except json.JSONDecodeError:
                     pass
         except Exception as e:
-            if self.valves.debug:
-                print(f"ynab_api_request: error deciding tool: {e}")
-            await __event_emitter__(
-                {
-                    "type": "status",
-                    "data": {
-                        "description": f"Error deciding tool: {e}",
-                        "done": True,
-                    },
-                }
+            determinationError = "Error occurred while determining what YNAB data to retrieve."
+            await emitter.emit(
+                status="error",
+                description=f"{determinationError} {e}",
+                done=True,
+                err=e,
+                debug=debugState
             )
-            return "Error occurred while determining what data to retrieve."
+            return determinationError
 
-        if endpoint == "accounts":
-            if self.valves.debug:
-                print(f"ynab_api_request: fetching YNAB account data")
-            await __event_emitter__(
-                {
-                    "type": "status",
-                    "data": {
-                        "description": f"Fetching YNAB account data",
-                        "done": False,
-                    },
-                }
-            )
+        await emitter.emit(
+            description="Opening YNAB session...",
+            debug=debugState
+        )
 
-            url = f"https://api.ynab.com/v1/budgets/{budget_id}/accounts"
-            try:
-                response = requests.get(url, headers=headers)
-                if response.status_code != 200:
-                    if self.valves.debug:
-                        print(f"ynab_api_request: YNAB API error: {response.status_code} {response.text}")
-                    return f"YNAB API error: {response.status_code} {response.text}"
-                accounts = response.json().get("data", {}).get("accounts", [])
-                if not accounts:
-                    if self.valves.debug:
-                        print(f"ynab_api_request: no accounts found")
-                    return "No accounts found."
+        if dataType == "accounts":
 
-                processed_accounts = []
-                for acc in accounts:
-                    if not acc.get("closed", False):
-                        processed_accounts.append({
-                            "name": acc.get("name"),
-                            "balance": acc.get("balance", 0) / 1000.0,
-                            "type": acc.get("type"),
-                            "included_in_budget": acc.get("on_budget", False)
-                        })
-
-                if self.valves.debug:
-                    print("ynab_api_request: YNAB account data fetched successfully")
-                await __event_emitter__(
-                    {
-                        "type": "status",
-                        "data": {
-                            "description": f"YNAB account data fetched successfully",
-                            "done": True,
-                        },
-                    }
+            await emitter.emit(
+                    description="Fetching YNAB account data...",
+                    debug=debugState
                 )
 
-                return  {
-                    "All YNAB Accounts": processed_accounts
-                }
+            url = f"https://api.ynab.com/v1/budgets/{budget_id}/accounts"
+            response = requests.get(url, headers=headers)
+            if response.status_code != 200:
+                apiErr = f"YNAB API error: {response.status_code} {response.text}"
+                await emitter.emit(
+                    status="error",
+                    description=apiErr,
+                    done=True,
+                    debug=debugState
+                )
+                return apiErr
+
+            try:
+                accounts = response.json().get("data", {}).get("accounts", [])
+                if not accounts:
+                    noAcctErr = f"No accounts found."
+                    await emitter.emit(
+                        status="error",
+                        description=noAcctErr,
+                        done=True,
+                        debug=debugState
+                    )
+                    return noAcctErr
+
+                processed_accounts_json = {"All YNAB Accounts": []}
+                processed_accounts_markdown = """
+                    | Account Name | Type | Balance |\n
+                    | --- | --- | ---: |\n
+                    """
+                processed_accounts_plaintext = "All YNAB Accounts:\n"
+                for acc in accounts:
+                    if not acc.get("closed", False):
+                        acctName = acc.get("name")
+                        acctBalance = acc.get("balance", 0) / 1000.0
+                        acctType = acc.get("type")
+                        processed_accounts_json["All YNAB Accounts"].append({
+                            "name": acctName,
+                            "balance": acctBalance,
+                            "type": acctType,
+                            # Not necessary yet:
+                            # "included_in_budget": acc.get("on_budget", False)
+                        })
+                    processed_accounts_markdown += f"| {acctName} | {acctType} | {acctBalance} |\n"
+                    processed_accounts_plaintext += f"- {acctName} ({acctType}): {acctBalance}\n"
+                await emitter.emit(
+                    status="complete",
+                    description="YNAB account data fetched successfully",
+                    done=True,
+                    debug=debugState
+                )
+                if contextFormat == "JSON":
+                    if debugState == "Full":
+                        print(processed_accounts_json)
+                    return processed_accounts_json
+                elif contextFormat == "Markdown":
+                    if debugState == "Full":
+                        print(processed_accounts_markdown)
+                    return processed_accounts_markdown
+                elif contextFormat == "Plaintext":
+                    if debugState == "Full":
+                        print(processed_accounts_plaintext)
+                    return processed_accounts_plaintext
             except Exception as e:
-                if self.valves.debug:
-                    print(f"ynab_api_request: error fetching YNAB accounts: {str(e)}")
-                return f"Error fetching YNAB accounts: {str(e)}"
+                acctFail = "YNAB account data fetch failed."
+                await emitter.emit(
+                    status="error",
+                    description=acctFail,
+                    done=True,
+                    err=e,
+                    debug=debugState
+                )
+                return f"{acctFail} Error: {str(e)}"
 
-        elif endpoint == "transactions":
+        elif dataType == "transactions":
 
-            if self.valves.debug:
-                    print(f"ynab_api_request: fetching YNAB transaction data")
-            await __event_emitter__(
-                {
-                    "type": "status",
-                    "data": {
-                        "description": f"Fetching YNAB transaction data",
-                        "done": False,
-                    },
-                }
+            await emitter.emit(
+                description="Fetching YNAB transaction data",
+                debug=debugState
             )
 
             url = f"https://api.ynab.com/v1/budgets/{budget_id}/transactions"
+            response = requests.get(url, headers=headers)
+            if response.status_code != 200:
+                apiErr = f"YNAB API error: {response.status_code} {response.text}"
+                await emitter.emit(
+                    status="error",
+                    description=apiErr,
+                    done=True,
+                    debug=debugState
+                )
+                return apiErr
+
             try:
-                response = requests.get(url, headers=headers)
-                if response.status_code != 200:
-                    if self.valves.debug:
-                        print(f"ynab_api_request: YNAB API error: {response.status_code} {response.text}")
-                    return f"YNAB API error: {response.status_code} {response.text}"
+
                 transactions = response.json().get("data", {}).get("transactions", [])
                 if not transactions:
-                    if self.valves.debug:
-                        print("ynab_api_request: no transactions found")
-                    return "No transactions found."
-
-                processed_transactions = []
+                    noTxError = f"No transactions found."
+                    await emitter.emit(
+                        status="error",
+                        description=noTxError,
+                        done=True,
+                        debug=debugState
+                    )
+                    return noTxError
+                processed_transactions_json = {"All YNAB Transactions": []}
+                processed_transactions_markdown = """
+                    | Transaction Date | Payee | Amount | Category | Account | Notes |\n
+                    | --- | --- | ---: | --- | --- | --- |\n
+                    """
+                processed_transactions_plaintext = "All YNAB Transactions:\n"
                 for tx in transactions:
-                    processed_transactions.append({
-                        "date": tx.get("date", ""),
-                        "payee": tx.get("payee_name", "Unknown"),
-                        "amount": tx.get("amount", 0) / 1000.0,
-                        "category": tx.get("category_name", "Uncategorized"),
-                        "account": tx.get("account_name", "Unknown Account"),
-                        "memo": tx.get("memo", ""),
+                    txDate = tx.get("date", "")
+                    payee = tx.get("payee_name", "Unknown"),
+                    amount = tx.get("amount", 0) / 1000.0
+                    category = tx.get("category_name", "Uncategorized")
+                    account = tx.get("account_name", "Unknown Account")
+                    memo = tx.get("memo", "")
+                    processed_transactions_json["All YNAB Transactions"].append({
+                        "date": txDate,
+                        "payee": payee,
+                        "amount": amount,
+                        "category": category,
+                        "account": account,
+                        "memo": memo,
                     })
-
-                if self.valves.debug:
-                        print("ynab_api_request: YNAB data fetched successfully")
-                await __event_emitter__(
-                    {
-                        "type": "status",
-                        "data": {
-                            "description": f"YNAB transaction data fetched successfully",
-                            "done": True,
-                        },
-                    }
+                    processed_transactions_markdown += f"| {txDate} | {payee} | {amount} | {category} | {account} | {memo} |\n"
+                    processed_transactions_plaintext += f"- Date: {txDate}, Payee: {payee}, Amount: {amount}, Category: {category}, Account: {account}, Memo: {memo}\n"
+                await emitter.emit(
+                    status="complete",
+                    description="YNAB transaction data fetched successfully",
+                    done=True,
+                    debug=debugState
                 )
-
-                return {
-                    "All YNAB Transactions": processed_transactions
-                }
+                if contextFormat == "JSON":
+                    if debugState == "Full":
+                        print(processed_transactions_json)
+                    return processed_transactions_json
+                elif contextFormat == "Markdown":
+                    if debugState == "Full":
+                        print(processed_transactions_markdown)
+                    return processed_transactions_markdown
+                elif contextFormat == "Plaintext":
+                    if debugState == "Full":
+                        print(processed_transactions_plaintext)
+                    return processed_transactions_plaintext
             except Exception as e:
-                if self.valves.debug:
-                        print(f"ynab_api_request: error fetching YNAB transactions: {str(e)}")
-                return f"Error fetching YNAB transactions: {str(e)}"
+                transactionFail = "YNAB transaction data fetch failed."
+                await emitter.emit(
+                    status="error",
+                    description=transactionFail,
+                    done=True,
+                    err=e,
+                    debug=debugState
+                )
+                return f"{transactionFail} Error: {str(e)}"
 
-        if self.valves.debug:
-            print(f"ynab_api_request: no matching YNAB data found")
-        await __event_emitter__(
-            {
-                "type": "status",
-                "data": {
-                    "description": "No matching YNAB data found.",
-                    "done": True,
-                },
-            }
-        )
-        return "I'm not sure which YNAB data to retrieve based on your query."
+        # If all else fails...
+        
+        finalError = "No matching YNAB data found."
+        await emitter.emit(
+                status="error",
+                description=f"{finalError}",
+                done=True,
+                debug=debugState
+            )
+        return finalError
