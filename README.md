@@ -29,10 +29,10 @@ v0.2.0 [2025-05-07]
 * **YNAB API Request Tool:**
   - [ ] Incorporate [delta requests](https://api.ynab.com/#deltas)
   - [ ] Improve citations (Potentially deeplink to YNAB if possible?)
-  - [x] Reformat context into simple JSON for more accurate interpretation
-    - [x] Implement functions for JSONify, Markdownify, Plaintextify, and present it as a Valve for the user to select how the data is presented in the LLM context. Pros and cons for each.
+  - [x] ~~Reformat context into simple JSON for more accurate interpretation~~
+    - [x] ~~Implement functions for JSONify, Markdownify, Plaintextify, and present it as a Valve for the user to select how the data is presented in the LLM context. Pros and cons for each.~~
 
 * **Actual API Request Tool:**
   - [ ] Improve citations (Potentially deeplink to Actual if possible? Would need to have user specify if Actual query address is different from accessible address. For example: OWUI + Actual running on same machine would be `localhost:port`, but if OWUI accessed from another machine, would need to resolve citation URL differently)
-  - [x] Reformat context into simple JSON for more accurate interpretation
-    - [x] Implement functions for JSONify, Markdownify, Plaintextify, and present it as a Valve for the user to select how the data is presented in the LLM context. Pros and cons for each.
+  - [x] ~~Reformat context into simple JSON for more accurate interpretation~~
+    - [x] ~~Implement functions for JSONify, Markdownify, Plaintextify, and present it as a Valve for the user to select how the data is presented in the LLM context. Pros and cons for each.~~
