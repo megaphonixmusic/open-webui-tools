@@ -16,8 +16,8 @@ required_open_webui_version: 0.6.5
 #     Step 1: https://api.ynab.com/#access-token-usage
 #     Step 2: https://api.ynab.com/#response-format
 
-from datetime import datetime, timedelta
-from typing import List, Dict, Callable, Any, Optional, Awaitable
+from datetime import datetime, timedelta, date
+from typing import List, Dict, Callable, Any, Optional, Awaitable, Literal
 from pydantic import BaseModel, Field
 import requests
 import re
@@ -35,6 +35,9 @@ class Tools:
         )
         ynab_access_token: str = Field(
             default="", description="YNAB API authorization token", required=True
+        )
+        context_format: Literal["JSON", "Markdown", "Plaintext"] = Field(
+            default="JSON", title="Context Format", description="How to format data passed to LLM for context: JSON, Markdown, Plaintext"
         )
         debug: bool = Field(
             default=False, description="Enables verbose debugging in OpenWebUI logs"
