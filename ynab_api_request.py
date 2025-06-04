@@ -16,6 +16,9 @@ required_open_webui_version: 0.6.5
 #     Step 1: https://api.ynab.com/#access-token-usage
 #     Step 2: https://api.ynab.com/#response-format
 #
+# v0.3.0 [2025-06-03]
+# - Updated system prompt and logic for more efficient data filtering by date(s)
+#
 # v0.2.0 [2025-05-07]
 # - Refactored code (now matches Actual API Request more closely)
 # - Added Valves for 'Context Format', 'Debug'
