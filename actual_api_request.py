@@ -11,6 +11,9 @@ requirements: actualpy>=0.12.1
 # !!! IMPORTANT: IT IS HIGHLY RECOMMENDED TO ONLY RUN THIS TOOL WITH LOCAL, PRIVATE LLMS !!!
 # (Due to handling sensitive financial data and information)
 #
+# v0.3.0 [2025-06-03]
+# - Updated system prompt and logic for more efficient data filtering by date(s)
+#
 # v0.2.0 [2025-05-07]
 # - Refactored code
 # - Added Valves for 'Currency' (currently unused), 'Context Format', 'Debug'
@@ -144,16 +147,32 @@ class Tools:
             },
         ]
 
-        system_prompt = (
-            f"""You are an assistant tasked with retrieving financial data for the user through 'Actual', a financial tracking and budgeting app.\n
-            Determine the best tool below to check for the user's data pertaining to the user's query.\n
-            Tools:\n
-            {str(tools_metadata)}
-            \nIf a tool doesn't match the query, return an empty list []. Otherwise, return a list of matching tool IDs in the format ['tool_id']. Only return the list. Do not return any other text.\n
-            Examples of ['accounts'] queries include 'What is my net worth?', 'How much is in my checking account?', 'How much do I owe on my student loans?', 'How much debt do I have?'\n
-            Examples of ['transactions'] queries include 'How much total did I spend last week?', 'How many times did I get Starbucks last month?', 'What is my largest purchase year-to-date?'
+        system_prompt = f"""
+            You are an assistant retrieving Actual Budget financial data based on a user's query.
+
+            Choose one of the tools below:
+            {tools_metadata}
+
+            Return a list:
+            - [] if no tool applies
+            - ['accounts'] for account/balance-related queries
+            - ['transactions'] for transaction queries with no clear date range
+            - ['transactions', startDate, endDate] for transaction queries with a clear date range
+
+            
+            For 'transactions':
+            - If the query uses **explicit calendar language** (e.g. "2nd week of May", "March 2024", "May 5–9"), interpret it literally and return accurate ISO 8601 start and end dates.
+            - If the query uses **relative time** (e.g. "last week", "past 3 days", "this month"), compute dates relative to today ({str(date.today())}).
+            - If no date is mentioned, return ['transactions'] without dates.
+
+            Examples:
+            - "What's in my checking account?" → ['accounts']
+            - "How much did I spend last week?" → ['transactions', '2025-05-27', '2025-06-02']
+            - "How much did I spend on groceries?" → ['transactions']
+            - "How much did I spend in the 2nd week of May?" → ['transactions', '2025-05-05', '2025-05-11']
+
+            Only return the list. No explanations.
             """
-        )
 
         prompt = f"Query: {query}"
 
@@ -175,11 +194,25 @@ class Tools:
             content = content.replace("'", '"')
             match = re.search(r"\[.*?\]", content)
             dataType = None
+            startDate = None
+            endDate = None
             if match:
                 try:
-                    tools = json.loads(match.group(0))
-                    if isinstance(tools, list) and tools:
-                        dataType = tools[0]
+                    params = json.loads(match.group(0))
+                    if debugState == "Full":
+                        print(f'LLM Response: {params}')
+                    if isinstance(params, list) and params:
+                        dataType = params[0]
+                        if len(params) == 2:
+                            startDate = params[1]
+                            endDate = str(date.today())
+                        elif len(params) == 3:
+                            startDate = params[1]
+                            endDate = params[2]
+                        if debugState == "Full":
+                            print(f"Parsed dataType: {dataType}")
+                            print(f"Parsed startDate: {startDate}")
+                            print(f"Parsed endDate: {endDate}")
                 except json.JSONDecodeError:
                     pass
         except Exception as e:
@@ -269,6 +302,8 @@ class Tools:
 
                     payees = get_payees(actual.session)
                     payee_lookup = {pay.id: pay.name for pay in payees}
+
+                    transactions = get_transactions(actual.session, startDate, endDate)
 
                     processed_transactions_json = {"All Actual Transactions": []}
                     processed_transactions_markdown = """

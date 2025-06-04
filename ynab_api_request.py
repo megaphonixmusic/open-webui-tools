@@ -3,7 +3,7 @@ title: YNAB API Request
 description: Retrieves user's financial information (accounts or transactions) from YNAB API to answer personal finance questions
 author: megaphonix
 author_url: https://github.com/megaphonixmusic
-version: 0.2.0
+version: 0.3.0
 required_open_webui_version: 0.6.5
 """
 
@@ -16,7 +16,7 @@ required_open_webui_version: 0.6.5
 #     Step 1: https://api.ynab.com/#access-token-usage
 #     Step 2: https://api.ynab.com/#response-format
 #
-# v0.2.0 [2025-05-07] 
+# v0.2.0 [2025-05-07]
 # - Refactored code (now matches Actual API Request more closely)
 # - Added Valves for 'Context Format', 'Debug'
 
@@ -29,11 +29,13 @@ import json
 from open_webui.models.users import Users
 from open_webui.utils.chat import generate_chat_completion
 
+
 def format_currency(amount: float) -> str:
-            if amount < 0:
-                return f"-${abs(amount):,.2f}"
-            else:
-                return f"${amount:,.2f}"
+    if amount < 0:
+        return f"-${abs(amount):,.2f}"
+    else:
+        return f"${amount:,.2f}"
+
 
 class EventEmitter:
 
@@ -46,10 +48,10 @@ class EventEmitter:
         status="in_progress",
         done=False,
         err=None,
-        debug="Off"
+        debug="Off",
     ):
         if debug in {"Basic", "Full"}:
-            debugMsg = f"[actual_api_request] {status}: {description}"
+            debugMsg = f"[ynab_api_request] {status}: {description}"
             if not err == None:
                 debugMsg += f" (Error: {err})"
             print(debugMsg)
@@ -65,6 +67,7 @@ class EventEmitter:
                 }
             )
 
+
 class Tools:
 
     class Valves(BaseModel):
@@ -78,22 +81,22 @@ class Tools:
             default="",
             title="YNAB Access Token",
             description="YNAB API authorization token",
-            required=True
+            required=True,
         )
         CONTEXT_FORMAT: Literal["JSON", "Markdown", "Plaintext"] = Field(
             default="JSON",
             description="How to format data passed to LLM for context: JSON, Markdown, Plaintext",
-            required=True
+            required=True,
         )
         DEBUG: Literal["Off", "Basic", "Full"] = Field(
             default="Off",
             description="Toggle verbose debugging in OpenWebUI logs. Off = none, Basic = status messages, Full = includes raw data",
-            required=False
+            required=False,
         )
         CITATIONS: bool = Field(
             default=False,
             description="Enables in-line 'citations', proving response is sourced from actual YNAB data. Looks messy, but is useful for debugging/differentiating from hallucinations",
-            required=False
+            required=False,
         )
         pass
 
@@ -116,8 +119,7 @@ class Tools:
         debugState = self.valves.DEBUG
 
         await emitter.emit(
-            description="Determining which YNAB data to retrieve...",
-            debug=debugState
+            description="Determining which YNAB data to retrieve...", debug=debugState
         )
 
         budget_id = self.valves.YNAB_BUDGET_ID
@@ -136,16 +138,34 @@ class Tools:
             },
         ]
 
-        system_prompt = (
-            f"""You are an assistant tasked with retrieving financial data for the user through 'YNAB' (aka You Need A Budget), a financial tracking and budgeting app.\n
-            Determine the best tool below to check for the user's data pertaining to the user's query.\n
-            Tools:\n
-            {str(tools_metadata)}
-            \nIf a tool doesn't match the query, return an empty list []. Otherwise, return a list of matching tool IDs in the format ['tool_id']. Only return the list. Do not return any other text.\n
-            Examples of ['accounts'] queries include 'What is my net worth?', 'How much is in my checking account?', 'How much do I owe on my student loans?', 'How much debt do I have?'\n
-            Examples of ['transactions'] queries include 'How much total did I spend last week?', 'How many times did I get Starbucks last month?', 'What is my largest purchase year-to-date?'
+        system_prompt = f"""
+            You are an assistant retrieving YNAB (You Need A Budget) financial data based on a user's query.
+
+            Choose one of the tools below:
+            {tools_metadata}
+
+            Return a list:
+            - [] if no tool applies
+            - ['accounts'] for account/balance-related queries
+            - ['transactions'] for transaction queries with no clear date range
+            - ['transactions', startDate, endDate] for transaction queries with a clear date range
+
+            
+            For 'transactions':
+            - If the query uses **explicit calendar language** (e.g. "2nd week of May", "March 2024", "May 5–9"), interpret it literally and return accurate ISO 8601 start and end dates.
+            - If the query uses **relative time** (e.g. "last week", "past 3 days", "this month"), compute dates relative to today ({str(date.today())}).
+            - If no date is mentioned, return ['transactions'] without dates.
+
+            Examples:
+            - "What's in my checking account?" → ['accounts']
+            - "How much did I spend last week?" → ['transactions', '2025-05-27', '2025-06-02']
+            - "How much did I spend on groceries?" → ['transactions']
+            - "How much did I spend in the 2nd week of May?" → ['transactions', '2025-05-05', '2025-05-11']
+
+            Only return the list. No explanations.
             """
-        )
+
+
 
         prompt = f"Query: {query}"
 
@@ -155,7 +175,7 @@ class Tools:
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": prompt},
             ],
-            "stream": False
+            "stream": False,
         }
 
         try:
@@ -167,45 +187,54 @@ class Tools:
             content = content.replace("'", '"')
             match = re.search(r"\[.*?\]", content)
             dataType = None
+            startDate = None
+            endDate = None
             if match:
                 try:
-                    tools = json.loads(match.group(0))
-                    if isinstance(tools, list) and tools:
-                        dataType = tools[0]
+                    params = json.loads(match.group(0))
+                    if debugState == "Full":
+                        print(f'LLM Response: {params}')
+                    if isinstance(params, list) and params:
+                        dataType = params[0]
+                        if len(params) == 2:
+                            startDate = params[1]
+                            endDate = str(date.today())
+                        elif len(params) == 3:
+                            startDate = params[1]
+                            endDate = params[2]
+                        if debugState == "Full":
+                            print(f"Parsed dataType: {dataType}")
+                            print(f"Parsed startDate: {startDate}")
+                            print(f"Parsed endDate: {endDate}")
                 except json.JSONDecodeError:
                     pass
         except Exception as e:
-            determinationError = "Error occurred while determining what YNAB data to retrieve."
+            determinationError = (
+                "Error occurred while determining what YNAB data to retrieve."
+            )
             await emitter.emit(
                 status="error",
                 description=f"{determinationError} {e}",
                 done=True,
                 err=e,
-                debug=debugState
+                debug=debugState,
             )
             return determinationError
 
-        await emitter.emit(
-            description="Opening YNAB session...",
-            debug=debugState
-        )
+        await emitter.emit(description="Opening YNAB session...", debug=debugState)
 
         if dataType == "accounts":
 
             await emitter.emit(
-                    description="Fetching YNAB account data...",
-                    debug=debugState
-                )
+                description="Fetching YNAB account data...", debug=debugState
+            )
 
             url = f"https://api.ynab.com/v1/budgets/{budget_id}/accounts"
             response = requests.get(url, headers=headers)
             if response.status_code != 200:
                 apiErr = f"YNAB API error: {response.status_code} {response.text}"
                 await emitter.emit(
-                    status="error",
-                    description=apiErr,
-                    done=True,
-                    debug=debugState
+                    status="error", description=apiErr, done=True, debug=debugState
                 )
                 return apiErr
 
@@ -217,7 +246,7 @@ class Tools:
                         status="error",
                         description=noAcctErr,
                         done=True,
-                        debug=debugState
+                        debug=debugState,
                     )
                     return noAcctErr
 
@@ -232,20 +261,26 @@ class Tools:
                         acctName = acc.get("name")
                         acctBalance = acc.get("balance", 0) / 1000.0
                         acctType = acc.get("type")
-                        processed_accounts_json["All YNAB Accounts"].append({
-                            "name": acctName,
-                            "balance": acctBalance,
-                            "type": acctType,
-                            # Not necessary yet:
-                            # "included_in_budget": acc.get("on_budget", False)
-                        })
-                    processed_accounts_markdown += f"| {acctName} | {acctType} | {acctBalance} |\n"
-                    processed_accounts_plaintext += f"- {acctName} ({acctType}): {acctBalance}\n"
+                        processed_accounts_json["All YNAB Accounts"].append(
+                            {
+                                "name": acctName,
+                                "balance": acctBalance,
+                                "type": acctType,
+                                # Not necessary yet:
+                                # "included_in_budget": acc.get("on_budget", False)
+                            }
+                        )
+                    processed_accounts_markdown += (
+                        f"| {acctName} | {acctType} | {acctBalance} |\n"
+                    )
+                    processed_accounts_plaintext += (
+                        f"- {acctName} ({acctType}): {acctBalance}\n"
+                    )
                 await emitter.emit(
                     status="complete",
                     description="YNAB account data fetched successfully",
                     done=True,
-                    debug=debugState
+                    debug=debugState,
                 )
                 if contextFormat == "JSON":
                     if debugState == "Full":
@@ -266,39 +301,64 @@ class Tools:
                     description=acctFail,
                     done=True,
                     err=e,
-                    debug=debugState
+                    debug=debugState,
                 )
                 return f"{acctFail} Error: {str(e)}"
 
         elif dataType == "transactions":
 
             await emitter.emit(
-                description="Fetching YNAB transaction data",
-                debug=debugState
+                description="Fetching YNAB transaction data", debug=debugState
             )
 
-            url = f"https://api.ynab.com/v1/budgets/{budget_id}/transactions"
+            use_month_endpoint = False
+            if startDate and endDate:
+                start_dt = date.fromisoformat(startDate)
+                end_dt = date.fromisoformat(endDate)
+                use_month_endpoint = (
+                    start_dt.year == end_dt.year and start_dt.month == end_dt.month
+                )
+
+            if startDate and use_month_endpoint:
+                month_str = start_dt.strftime("%Y-%m-01")
+                url = f"https://api.ynab.com/v1/budgets/{budget_id}/months/{month_str}/transactions"
+            elif startDate:
+                url = f"https://api.ynab.com/v1/budgets/{budget_id}/transactions?since_date={startDate}"
+            else:
+                url = f"https://api.ynab.com/v1/budgets/{budget_id}/transactions"
+                
             response = requests.get(url, headers=headers)
             if response.status_code != 200:
                 apiErr = f"YNAB API error: {response.status_code} {response.text}"
                 await emitter.emit(
-                    status="error",
-                    description=apiErr,
-                    done=True,
-                    debug=debugState
+                    status="error", description=apiErr, done=True, debug=debugState
                 )
                 return apiErr
 
             try:
 
                 transactions = response.json().get("data", {}).get("transactions", [])
+                if startDate and endDate:
+                    start_dt = date.fromisoformat(startDate)
+                    end_dt = date.fromisoformat(endDate)
+
+                    print(f"start_dt: {start_dt}, end_dt: {end_dt}")
+                    print(f"Initial transaction count: {len(transactions)}")
+
+                    transactions = [
+                        tx for tx in transactions
+                        if start_dt <= date.fromisoformat(tx.get("date", "9999-12-31")) <= end_dt
+                    ]
+
+                    print(f"Filtered transaction count: {len(transactions)}")
+
                 if not transactions:
                     noTxError = f"No transactions found."
                     await emitter.emit(
                         status="error",
                         description=noTxError,
                         done=True,
-                        debug=debugState
+                        debug=debugState,
                     )
                     return noTxError
                 processed_transactions_json = {"All YNAB Transactions": []}
@@ -309,26 +369,28 @@ class Tools:
                 processed_transactions_plaintext = "All YNAB Transactions:\n"
                 for tx in transactions:
                     txDate = tx.get("date", "")
-                    payee = tx.get("payee_name", "Unknown"),
+                    payee = (tx.get("payee_name", "Unknown"),)
                     amount = tx.get("amount", 0) / 1000.0
                     category = tx.get("category_name", "Uncategorized")
                     account = tx.get("account_name", "Unknown Account")
                     memo = tx.get("memo", "")
-                    processed_transactions_json["All YNAB Transactions"].append({
-                        "date": txDate,
-                        "payee": payee,
-                        "amount": amount,
-                        "category": category,
-                        "account": account,
-                        "memo": memo,
-                    })
+                    processed_transactions_json["All YNAB Transactions"].append(
+                        {
+                            "date": txDate,
+                            "payee": payee,
+                            "amount": amount,
+                            "category": category,
+                            "account": account,
+                            "memo": memo,
+                        }
+                    )
                     processed_transactions_markdown += f"| {txDate} | {payee} | {amount} | {category} | {account} | {memo} |\n"
                     processed_transactions_plaintext += f"- Date: {txDate}, Payee: {payee}, Amount: {amount}, Category: {category}, Account: {account}, Memo: {memo}\n"
                 await emitter.emit(
                     status="complete",
                     description="YNAB transaction data fetched successfully",
                     done=True,
-                    debug=debugState
+                    debug=debugState,
                 )
                 if contextFormat == "JSON":
                     if debugState == "Full":
@@ -349,17 +411,14 @@ class Tools:
                     description=transactionFail,
                     done=True,
                     err=e,
-                    debug=debugState
+                    debug=debugState,
                 )
                 return f"{transactionFail} Error: {str(e)}"
 
         # If all else fails...
-        
+
         finalError = "No matching YNAB data found."
         await emitter.emit(
-                status="error",
-                description=f"{finalError}",
-                done=True,
-                debug=debugState
-            )
+            status="error", description=f"{finalError}", done=True, debug=debugState
+        )
         return finalError
