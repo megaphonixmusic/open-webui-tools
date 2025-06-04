@@ -3,7 +3,7 @@ title: Actual API Request
 description: Retrieves user's financial information (accounts or transactions) from Actual API to answer personal finance questions
 author: megaphonix
 author_url: https://github.com/megaphonixmusic
-version: 0.2.0
+version: 0.3.0
 required_open_webui_version: 0.6.5
 requirements: actualpy>=0.12.1
 """
