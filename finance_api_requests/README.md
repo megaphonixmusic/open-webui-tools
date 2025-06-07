@@ -58,6 +58,9 @@ v0.2.0 [2025-05-07]
   - [ ] Comment and clean up code for clarity and readability
   - [ ] Look into local cached data with persistent sync tracking, to reduce context size from API response and increase responsiveness
     - [ ] With local/persistent sync tracking, possibly implement account balance changes over time, such as "how much has my net worth changed over the past month"?
+  - [ ] Ability to use receipts or itemizations for a transaction (if supported, OCR with vision model) to update category splits on service
+    - [ ] i.e. Spend $20 on lunch and coffee, upload the receipt, LLM parses, updates category splits for existing transaction into "Coffee" ($5) and "Dining Out" ($15)
+    - [ ] Will require "write" functionality - use carefully with express user confirmation
   - [x] ~~Incorporate more logic branches for transaction data parsing efficiency **<- Actual: probably easiest to use existing `actualpy` methods directly**~~
     - [x] ~~i.e. phrases in the user's query like "last week's purchases" or "last month's total spend on `<category>`" should probably trigger a method to filter by date range~~
   - [x] ~~Update system prompt to ask the LLM to provide ISO date formats alongside endpoint choice~~
