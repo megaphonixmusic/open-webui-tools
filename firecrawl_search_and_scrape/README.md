@@ -19,7 +19,7 @@ This Open WebUI tool is designed to plug in to [Firecrawl](https://www.firecrawl
 1. Set up Firecrawl:
     1. If self-hosting: Follow [Firecrawl's Self-Hosting docs](https://docs.firecrawl.dev/contributing/self-host) to get Firecrawl running locally in a Docker container and test its functionality/accessibility at the default address (http://localhost:3002/v1/search) in your terminal. **Make sure to configure your SearXNG URL in the `SEARXNG_ENDPOINT` environment variable in the firecrawl/docker-compose.yaml file before building the Docker container!**
     2. If using API: Set up an account at http://firecrawl.dev/ and grab your generated API key.
-2. After confirming Firecrawl functionality, set the `Firecrawl Base URL` field to the appropriate address (depending on local or API), and set the `Firecrawl API Key` field to the API key (not applicable to local).
+2. After confirming Firecrawl functionality, in Open WebUI set the `Firecrawl Base URL` Valve to the appropriate address (depending on local or API), and set the `Firecrawl API Key` field to the API key (not applicable to local).
 3. Tweak other Valves/settings as desired
 
 # Changelog
