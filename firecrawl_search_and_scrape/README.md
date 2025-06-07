@@ -29,7 +29,6 @@ v0.0.1 [2025-06-06]
 
 # TODO
 
-* **Common:**
   - [ ] Comment and clean up code for clarity and readability
   - [ ] Further optimize scraped Markdown results for more efficient tokenization
   - [ ] Solve citations
